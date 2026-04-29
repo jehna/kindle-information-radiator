@@ -1,0 +1,16 @@
+{
+    "items": [
+        {
+            "name": "Weather",
+            "priority": 1,
+            "action": "bin/run.sh",
+            "exitmenu": "true"
+        },
+        {
+            "name": "Restart Kindle UI",
+            "priority": 2,
+            "action": "bin/restart-framework.sh",
+            "exitmenu": "true"
+        }
+    ]
+}

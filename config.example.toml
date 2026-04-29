@@ -1,0 +1,4 @@
+location_name = "Helsinki"
+latitude = 60.17
+longitude = 24.94
+calendar_url = "https://calendar.google.com/calendar/ical/.../basic.ics"
