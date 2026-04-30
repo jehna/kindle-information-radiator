@@ -1,4 +1,4 @@
-use crate::{ical::Event, weather::WeatherData};
+use crate::{ical::Event, taxi::TaxiPickup, weather::WeatherData};
 use chrono::{DateTime, Datelike, TimeZone, Utc};
 use chrono_tz::{Europe::Helsinki, Tz};
 
@@ -68,23 +68,12 @@ fn smooth_path(coords: &[(f64, f64)]) -> String {
         let c1y = p1.1 + (p2.1 - p0.1) / 6.0;
         let c2x = p2.0 - (p3.0 - p1.0) / 6.0;
         let c2y = p2.1 - (p3.1 - p1.1) / 6.0;
-        let _ = write!(
-            s,
-            " C {} {} {} {} {} {}",
-            c1x, c1y, c2x, c2y, p2.0, p2.1
-        );
+        let _ = write!(s, " C {} {} {} {} {} {}", c1x, c1y, c2x, c2y, p2.0, p2.1);
     }
     s
 }
 
-fn weather_widget(
-    location: &str,
-    data: &WeatherData,
-    x: f64,
-    y: f64,
-    w: f64,
-    h: f64,
-) -> String {
+fn weather_widget(location: &str, data: &WeatherData, x: f64, y: f64, w: f64, h: f64) -> String {
     let times = &data.hourly.time;
     let temps = &data.hourly.temperature_2m;
     let codes = &data.hourly.weather_code;
@@ -135,7 +124,12 @@ fn weather_widget(
         let _ = write!(
             grid,
             "<line x1='{}' y1='{}' x2='{}' y2='{}' stroke='{}' stroke-width='{}'/>",
-            margin_l, py, x + w - margin_r, py, color, sw
+            margin_l,
+            py,
+            x + w - margin_r,
+            py,
+            color,
+            sw
         );
         if major {
             let _ = write!(
@@ -154,7 +148,12 @@ fn weather_widget(
         let _ = write!(
             grid,
             "<line x1='{}' y1='{}' x2='{}' y2='{}' stroke='{}' stroke-width='{}'/>",
-            px, margin_t, px, margin_t + plot_h, color, sw
+            px,
+            margin_t,
+            px,
+            margin_t + plot_h,
+            color,
+            sw
         );
     }
 
@@ -225,14 +224,18 @@ fn xml_escape(s: &str) -> String {
 }
 
 fn calendar_widget(events: &[Event], x: f64, y: f64, w: f64, h: f64) -> String {
-    let _ = w;
+    let clip_w = w - 24.0;
+    let clip = format!(
+        "<defs><clipPath id='cal-clip'><rect x='{}' y='{}' width='{}' height='{}'/></clipPath></defs>",
+        x, y, clip_w, h
+    );
     let title = format!(
         "<text x='{}' y='{}' font-size='32' font-weight='bold' font-family='sans-serif'>Tulevat</text>",
         x + 24.0, y + 44.0
     );
     if events.is_empty() {
         return format!(
-            "{title}<text x='{}' y='{}' font-size='22' fill='#444' font-family='sans-serif'>Ei tulevia tapahtumia</text>",
+            "{clip}{title}<g clip-path='url(#cal-clip)'><text x='{}' y='{}' font-size='22' fill='#444' font-family='sans-serif'>Ei tulevia tapahtumia</text></g>",
             x + 24.0, y + 90.0
         );
     }
@@ -245,7 +248,9 @@ fn calendar_widget(events: &[Event], x: f64, y: f64, w: f64, h: f64) -> String {
         let _ = write!(
             body,
             "<text x='{}' y='{}' font-size='22' fill='#333' font-family='sans-serif'>{}</text>",
-            x + 24.0, row_y + 30.0, xml_escape(&when)
+            x + 24.0,
+            row_y + 30.0,
+            xml_escape(&when)
         );
         let _ = write!(
             body,
@@ -253,19 +258,106 @@ fn calendar_widget(events: &[Event], x: f64, y: f64, w: f64, h: f64) -> String {
             x + 24.0, row_y + 78.0, xml_escape(&ev.summary)
         );
     }
-    format!("{title}{body}")
+    format!("{clip}{title}<g clip-path='url(#cal-clip)'>{body}</g>")
+}
+
+const ICON_GRIN: &str = include_str!("../assets/emoji/1F601.svg");
+const ICON_SMILE: &str = include_str!("../assets/emoji/1F642.svg");
+const ICON_FLUSHED: &str = include_str!("../assets/emoji/1F633.svg");
+const ICON_COAT: &str = include_str!("../assets/emoji/1F9E5.svg");
+const ICON_FEAR: &str = include_str!("../assets/emoji/1F628.svg");
+const ICON_SCREAM: &str = include_str!("../assets/emoji/1F631.svg");
+const ICON_ARROW: &str = include_str!("../assets/emoji/27A1.svg");
+const ICON_TAXI: &str = include_str!("../assets/emoji/1F695.svg");
+
+fn embed_icon(svg: &str, cx: f64, cy: f64, size: f64) -> String {
+    let inner_start = svg
+        .find("<svg")
+        .and_then(|i| svg[i..].find('>').map(|j| i + j + 1))
+        .unwrap_or(0);
+    let inner_end = svg.rfind("</svg>").unwrap_or(svg.len());
+    let inner = &svg[inner_start..inner_end];
+    let scale = size / 72.0;
+    let x = cx - size / 2.0;
+    let y = cy - size / 2.0;
+    format!(
+        "<g transform='translate({} {}) scale({})'>{}</g>",
+        x, y, scale, inner
+    )
+}
+
+fn taxi_widget(pickup: &TaxiPickup, x: f64, y: f64, w: f64, h: f64) -> String {
+    // Deadline = "be outside" = scheduled - 10 min.
+    let deadline = pickup.scheduled_ts - 10 * 60;
+    let now = Utc::now().timestamp();
+    let remaining = deadline - now;
+    let remaining_min = remaining.div_euclid(60);
+
+    let icon = if remaining_min >= 60 {
+        ICON_GRIN
+    } else if remaining_min >= 30 {
+        ICON_SMILE
+    } else if remaining_min >= 15 {
+        ICON_FLUSHED
+    } else if remaining_min >= 10 {
+        ICON_COAT
+    } else if remaining_min >= 5 {
+        ICON_FEAR
+    } else {
+        ICON_SCREAM
+    };
+
+    let count_text = if remaining_min >= 60 {
+        format!("{}h", remaining_min / 60)
+    } else {
+        format!("{}min", remaining_min)
+    };
+
+    let cx = x + w / 2.0;
+    let icon_size = (w.min(h) * 0.55).min(240.0);
+    let icon_cy = y + h * 0.32;
+    let count_y = y + h * 0.68;
+    let small_size = 100.0;
+    let small_cy = y + h * 0.75;
+
+    let mut s = String::new();
+    s.push_str(&embed_icon(icon, cx, icon_cy, icon_size));
+    let _ = write!(
+        s,
+        "<text x='{}' y='{}' font-size='72' font-weight='bold' text-anchor='middle' font-family='sans-serif'>{}</text>",
+        cx, count_y, count_text
+    );
+    let gap = 3.0;
+    let small_total = small_size * 2.0 + gap;
+    let arrow_cx = cx - small_total / 2.0 + small_size / 2.0;
+    let taxi_cx = cx + small_total / 2.0 - small_size / 2.0 - small_size * 0.2;
+    s.push_str(&embed_icon(
+        ICON_ARROW,
+        arrow_cx,
+        small_cy + small_size * 0.1,
+        small_size * 0.7,
+    ));
+    s.push_str(&embed_icon(ICON_TAXI, taxi_cx, small_cy, small_size));
+    s
 }
 
 pub fn build_svg(
     location: &str,
     weather: Option<&WeatherData>,
     events: &[Event],
+    pickup: Option<&TaxiPickup>,
+    battery: Option<u32>,
     w: u32,
     h: u32,
 ) -> String {
-    let weather_h = (h as f64 * 0.62).floor();
-    let cal_y = weather_h + 1.0;
-    let cal_h = h as f64 - cal_y;
+    let weather_h = (h as f64 * 0.5).floor();
+    let bottom_y = weather_h + 1.0;
+    let bottom_h = h as f64 - bottom_y;
+    let cal_w = if pickup.is_some() {
+        (w as f64 / 2.0).floor()
+    } else {
+        w as f64
+    };
 
     let mut svg = format!(
         "<?xml version='1.0' encoding='UTF-8'?>\
@@ -273,7 +365,9 @@ pub fn build_svg(
          <rect width='{w}' height='{h}' fill='white'/>"
     );
     if let Some(weather) = weather {
-        svg.push_str(&weather_widget(location, weather, 0.0, 0.0, w as f64, weather_h));
+        svg.push_str(&weather_widget(
+            location, weather, 0.0, 0.0, w as f64, weather_h,
+        ));
     }
     let _ = write!(
         svg,
@@ -282,16 +376,38 @@ pub fn build_svg(
         w as f64 - 30.0,
         weather_h
     );
-    svg.push_str(&calendar_widget(events, 0.0, cal_y, w as f64, cal_h));
+    svg.push_str(&calendar_widget(events, 0.0, bottom_y, cal_w, bottom_h));
+    if let Some(pickup) = pickup {
+        let _ = write!(
+            svg,
+            "<line x1='{}' y1='{}' x2='{}' y2='{}' stroke='#333' stroke-width='2'/>",
+            cal_w,
+            bottom_y + 20.0,
+            cal_w,
+            h as f64 - 20.0
+        );
+        svg.push_str(&taxi_widget(
+            pickup,
+            cal_w,
+            bottom_y,
+            w as f64 - cal_w,
+            bottom_h,
+        ));
+    }
+    if let Some(pct) = battery {
+        let _ = write!(
+            svg,
+            "<text x='{}' y='{}' font-size='14' fill='#555' text-anchor='end' font-family='sans-serif'>{}%</text>",
+            w as f64 - 8.0,
+            18.0,
+            pct
+        );
+    }
     svg.push_str("</svg>");
     svg
 }
 
-pub fn render_to_pixmap(
-    svg: &str,
-    w: u32,
-    h: u32,
-) -> Result<resvg::tiny_skia::Pixmap, String> {
+pub fn render_to_pixmap(svg: &str, w: u32, h: u32) -> Result<resvg::tiny_skia::Pixmap, String> {
     let mut fontdb = resvg::usvg::fontdb::Database::new();
     fontdb.load_system_fonts();
     for path in &[
@@ -312,7 +428,11 @@ pub fn render_to_pixmap(
     if let Some(family) = &first_family {
         fontdb.set_sans_serif_family(family);
         fontdb.set_serif_family(family);
-        eprintln!("using font family: {} ({} faces total)", family, fontdb.len());
+        eprintln!(
+            "using font family: {} ({} faces total)",
+            family,
+            fontdb.len()
+        );
     } else {
         eprintln!("WARNING: no fonts loaded; text will not render");
     }

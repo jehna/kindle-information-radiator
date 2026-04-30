@@ -2,3 +2,9 @@ location_name = "Helsinki"
 latitude = 60.17
 longitude = 24.94
 calendar_url = "https://calendar.google.com/calendar/ical/.../basic.ics"
+
+# Optional: school taxi pickup widget (Kuntalogistiikka MunApp).
+# [taxi]
+# api_token = "TH+/77Fen..."
+# customer_rivi_id = 31298
+# weekday_ids = [2677, 4945, 4947, 4949, 4951]  # [Mon, Tue, Wed, Thu, Fri]
