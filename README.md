@@ -1,3 +1,5 @@
+<img src="./screenshot.png" width="250" alt="Screenshot">
+
 # Kindle information radiator
 > A super simple info display app for Kindle
 
